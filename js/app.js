@@ -134,8 +134,8 @@ function addPrefectureBorder(beforeId) {
     type: 'line',
     source: 'prefectures',
     paint: {
-      'line-color': '#1d4ed8',
-      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.5, 8, 2.5, 12, 3.0],
+      'line-color': '#1e3a8a',
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 2.5, 8, 4.0, 12, 5.5],
       'line-opacity': 1.0
     }
   }, beforeId);
