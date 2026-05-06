@@ -246,11 +246,6 @@ function bindZoomEvents() {
     document.getElementById('zoom-level').textContent = `zoom ${z.toFixed(1)}`;
     const showingMuni = z >= MUNI_ZOOM;
 
-    document.getElementById('level-badge').textContent =
-      showingMuni ? '市区町村表示' : '都道府県表示';
-    document.getElementById('level-badge').className =
-      showingMuni ? 'municipality' : '';
-
     if (showingMuni && !isShowingMunicipalities) {
       isShowingMunicipalities = true;
       loadVisibleMunicipalities();
@@ -264,6 +259,21 @@ function bindZoomEvents() {
   });
 }
 
+function bindToggle() {
+  const btn = document.getElementById('toggle-btn');
+  const controls = document.getElementById('controls');
+
+  if (window.innerWidth <= 600) {
+    controls.classList.add('collapsed');
+    btn.textContent = '開く ▼';
+  }
+
+  btn.addEventListener('click', () => {
+    controls.classList.toggle('collapsed');
+    btn.textContent = controls.classList.contains('collapsed') ? '開く ▼' : '閉じる ▲';
+  });
+}
+
 function bindControls() {
   document.querySelectorAll('.btn[data-mode]').forEach(btn => {
     btn.addEventListener('click', () => {
@@ -274,6 +284,7 @@ function bindControls() {
       updateColoring();
     });
   });
+  bindToggle();
 }
 
 function bindMapEvents() {
@@ -328,13 +339,46 @@ function buildColorExpression(mode, statsMap, codeKey) {
   return expr;
 }
 
+function buildMuniColorExpression(mode) {
+  const scale = COLOR_SCALES[mode];
+  const expr = ['match', ['get', 'N03_007']];
+  let hasEntries = false;
+
+  // 都道府県コード（先頭2桁）でグループ化
+  const prefGroups = {};
+  for (const [code, stats] of Object.entries(muniStats)) {
+    const prefCode = code.substring(0, 2);
+    if (!prefGroups[prefCode]) prefGroups[prefCode] = [];
+    const val = stats[mode];
+    if (val != null) prefGroups[prefCode].push({ code, val });
+  }
+
+  for (const entries of Object.values(prefGroups)) {
+    if (entries.length === 0) continue;
+    const vals = entries.map(e => e.val);
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const range = max - min || 1;
+
+    for (const { code, val } of entries) {
+      const t = Math.max(0, Math.min(1, (val - min) / range));
+      expr.push(code, interpolateColors(scale.colors, t));
+      hasEntries = true;
+    }
+  }
+
+  if (!hasEntries) return '#e8e8e8';
+  expr.push('#e8e8e8');
+  return expr;
+}
+
 function updateColoring() {
   map.setPaintProperty('prefecture-fill', 'fill-color',
     buildColorExpression(currentMode, prefStats, 'N03_007'));
 
   if (Object.keys(muniStats).length > 0) {
     map.setPaintProperty('municipality-fill', 'fill-color',
-      buildColorExpression(currentMode, muniStats, 'N03_007'));
+      buildMuniColorExpression(currentMode));
   }
 }
 

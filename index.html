@@ -12,36 +12,35 @@
 
   <div id="controls">
     <div id="control-header">
-      <h2>日本地図</h2>
       <span id="zoom-level"></span>
+      <button id="toggle-btn">閉じる ▲</button>
     </div>
+    <div id="control-body">
+      <div class="control-group">
+        <label>表示データ</label>
+        <div class="btn-group">
+          <button class="btn active" data-mode="population">人口</button>
+          <button class="btn" data-mode="avg_age">平均年齢</button>
+          <button class="btn" data-mode="elderly_pct">高齢化率</button>
+        </div>
+      </div>
 
-    <div class="control-group">
-      <label>表示データ</label>
-      <div class="btn-group">
-        <button class="btn active" data-mode="population">人口</button>
-        <button class="btn" data-mode="avg_age">平均年齢</button>
-        <button class="btn" data-mode="elderly_pct">高齢化率</button>
+      <div id="legend">
+        <div id="legend-title"></div>
+        <div id="legend-bar"></div>
+        <div id="legend-labels"></div>
+      </div>
+
+      <div id="info-panel">
+        <div id="info-name">地域をクリック</div>
+        <div id="info-stats"></div>
+      </div>
+
+      <div id="loading-indicator" style="display:none">
+        <span>市区町村データ読み込み中...</span>
       </div>
     </div>
-
-    <div id="legend">
-      <div id="legend-title"></div>
-      <div id="legend-bar"></div>
-      <div id="legend-labels"></div>
-    </div>
-
-    <div id="info-panel">
-      <div id="info-name">地域をクリック</div>
-      <div id="info-stats"></div>
-    </div>
-
-    <div id="loading-indicator" style="display:none">
-      <span>市区町村データ読み込み中...</span>
-    </div>
   </div>
-
-  <div id="level-badge">都道府県表示</div>
 
   <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
   <script src="js/app.js"></script>
