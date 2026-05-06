@@ -233,9 +233,9 @@ function setupMunicipalityLayer(beforeId) {
     type: 'line',
     source: 'municipalities',
     paint: {
-      'line-color': '#047857',
-      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.7, 12, 2.0],
-      'line-opacity': muniLineOpacity
+      'line-color': '#064e3b',
+      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1.5, 12, 3.5],
+      'line-opacity': 1.0
     }
   }, beforeId);
 }
