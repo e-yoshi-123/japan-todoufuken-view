@@ -1,9 +1,8 @@
 'use strict';
 
-// ズームしきい値: これ以上で市区町村表示
 const MUNI_ZOOM = 8;
+const FADE_START = 7.5;
 
-// カラースケール設定
 const COLOR_SCALES = {
   population: {
     title: '人口',
@@ -32,41 +31,39 @@ let map, prefStats = {}, muniStats = {};
 let currentMode = 'population';
 let loadedMuniPrefectures = new Set();
 let isShowingMunicipalities = false;
+const muniFeatureMap = {};
 
 async function init() {
-  // 都道府県統計データ読み込み
   const statsResp = await fetch('data/prefecture_stats.json');
   const statsData = await statsResp.json();
   statsData.prefectures.forEach(p => { prefStats[p.code] = p; });
 
-  // 都道府県GeoJSON読み込み
   const prefResp = await fetch('data/prefectures.geojson');
   const prefGeoJSON = await prefResp.json();
-
-  // 統計データをGeoJSONフィーチャーにマージ
   prefGeoJSON.features.forEach(f => {
     const code = f.properties.N03_007;
-    if (prefStats[code]) {
-      Object.assign(f.properties, prefStats[code]);
-    }
+    if (prefStats[code]) Object.assign(f.properties, prefStats[code]);
   });
 
   map = new maplibregl.Map({
     container: 'map',
     style: 'https://tiles.openfreemap.org/styles/liberty',
-    center: [136.5, 36.0],
+    center: [136.5, 36.5],
     zoom: 5,
-    minZoom: 3,
-    maxZoom: 14
+    minZoom: 4,
+    maxZoom: 14,
+    // 日本の範囲外にパンできないように制限
+    maxBounds: [[119, 22], [156, 47]]
   });
 
   map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
   map.on('load', () => {
-    // ラベルより下に挿入するためのアンカーレイヤーを探す
     const style = map.getStyle();
+    // 最初のsymbolレイヤーの前にfill/lineを挿入 → OFMラベルが上に来る
     const firstSymbolId = style.layers.find(l => l.type === 'symbol')?.id;
 
+    addWorldMask(firstSymbolId);
     setupPrefectureLayer(prefGeoJSON, firstSymbolId);
     setupMunicipalityLayer(firstSymbolId);
     updateLegend();
@@ -77,17 +74,55 @@ async function init() {
   });
 }
 
+// ---- 日本外マスク ----
+
+function addWorldMask(beforeId) {
+  // 日本のbboxを穴として持つ世界矩形ポリゴン
+  map.addSource('world-mask', {
+    type: 'geojson',
+    data: {
+      type: 'Feature',
+      geometry: {
+        type: 'Polygon',
+        coordinates: [
+          [[-180,-90],[180,-90],[180,90],[-180,90],[-180,-90]],
+          [[119,22],[156,22],[156,47],[119,47],[119,22]]
+        ]
+      }
+    }
+  });
+
+  map.addLayer({
+    id: 'world-mask',
+    type: 'fill',
+    source: 'world-mask',
+    paint: {
+      'fill-color': '#b8d4e8',
+      'fill-opacity': 1
+    }
+  }, beforeId);
+}
+
+// ---- 都道府県レイヤー ----
+
 function setupPrefectureLayer(geojson, beforeId) {
   map.addSource('prefectures', { type: 'geojson', data: geojson });
+
+  // zoom 7.5〜8 の間でフェードアウト
+  const prefOpacity = ['interpolate', ['linear'], ['zoom'],
+    FADE_START, 0.8,
+    MUNI_ZOOM, 0
+  ];
+  const prefLineOpacity = ['interpolate', ['linear'], ['zoom'],
+    FADE_START, 1.0,
+    MUNI_ZOOM, 0
+  ];
 
   map.addLayer({
     id: 'prefecture-fill',
     type: 'fill',
     source: 'prefectures',
-    paint: {
-      'fill-color': '#e8e8e8',
-      'fill-opacity': 0.75
-    }
+    paint: { 'fill-color': '#e8e8e8', 'fill-opacity': prefOpacity }
   }, beforeId);
 
   map.addLayer({
@@ -96,11 +131,34 @@ function setupPrefectureLayer(geojson, beforeId) {
     source: 'prefectures',
     paint: {
       'line-color': '#1d4ed8',
-      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.2, 8, 2.5, 10, 1.5],
-      'line-opacity': ['interpolate', ['linear'], ['zoom'], 7, 1.0, 9, 0.4]
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.2, 8, 2.5],
+      'line-opacity': prefLineOpacity
     }
   }, beforeId);
+
+  // 都道府県名ラベル（OFMのNoto Sansフォントを使用）
+  map.addLayer({
+    id: 'prefecture-label',
+    type: 'symbol',
+    source: 'prefectures',
+    minzoom: 4.5,
+    maxzoom: MUNI_ZOOM,
+    layout: {
+      'text-field': ['get', 'N03_001'],
+      'text-font': ['Noto Sans Bold', 'Noto Sans Regular'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 5, 9, 7, 13],
+      'text-allow-overlap': false,
+      'text-anchor': 'center'
+    },
+    paint: {
+      'text-color': '#1e293b',
+      'text-halo-color': 'rgba(255,255,255,0.9)',
+      'text-halo-width': 2
+    }
+  });
 }
+
+// ---- 市区町村レイヤー ----
 
 function setupMunicipalityLayer(beforeId) {
   map.addSource('municipalities', {
@@ -108,14 +166,21 @@ function setupMunicipalityLayer(beforeId) {
     data: { type: 'FeatureCollection', features: [] }
   });
 
+  // zoom 7.5〜8 の間でフェードイン
+  const muniOpacity = ['interpolate', ['linear'], ['zoom'],
+    FADE_START, 0,
+    MUNI_ZOOM, 0.8
+  ];
+  const muniLineOpacity = ['interpolate', ['linear'], ['zoom'],
+    FADE_START, 0,
+    MUNI_ZOOM, 0.9
+  ];
+
   map.addLayer({
     id: 'municipality-fill',
     type: 'fill',
     source: 'municipalities',
-    paint: {
-      'fill-color': '#e8e8e8',
-      'fill-opacity': 0.75
-    }
+    paint: { 'fill-color': '#e8e8e8', 'fill-opacity': muniOpacity }
   }, beforeId);
 
   map.addLayer({
@@ -124,27 +189,29 @@ function setupMunicipalityLayer(beforeId) {
     source: 'municipalities',
     paint: {
       'line-color': '#047857',
-      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.6, 12, 1.8],
-      'line-opacity': 0.8
+      'line-width': ['interpolate', ['linear'], ['zoom'], 8, 0.7, 12, 2.0],
+      'line-opacity': muniLineOpacity
     }
   }, beforeId);
 }
+
+// ---- ズームイベント ----
 
 function bindZoomEvents() {
   map.on('zoom', () => {
     const z = map.getZoom();
     document.getElementById('zoom-level').textContent = `zoom ${z.toFixed(1)}`;
-    const showing = z >= MUNI_ZOOM;
+    const showingMuni = z >= MUNI_ZOOM;
 
     document.getElementById('level-badge').textContent =
-      showing ? '市区町村表示' : '都道府県表示';
+      showingMuni ? '市区町村表示' : '都道府県表示';
     document.getElementById('level-badge').className =
-      showing ? 'municipality' : '';
+      showingMuni ? 'municipality' : '';
 
-    if (showing && !isShowingMunicipalities) {
+    if (showingMuni && !isShowingMunicipalities) {
       isShowingMunicipalities = true;
       loadVisibleMunicipalities();
-    } else if (!showing) {
+    } else if (!showingMuni) {
       isShowingMunicipalities = false;
     }
   });
@@ -167,21 +234,16 @@ function bindControls() {
 }
 
 function bindMapEvents() {
-  // 都道府県クリック
   map.on('click', 'prefecture-fill', e => {
+    if (map.getZoom() >= MUNI_ZOOM) return; // 市区町村モード時はスキップ
     const props = e.features[0].properties;
-    const code = props.N03_007;
-    const stats = prefStats[code];
-    showInfo(props.N03_001 || props.name, stats);
+    showInfo(props.N03_001, prefStats[props.N03_007]);
   });
 
-  // 市区町村クリック
   map.on('click', 'municipality-fill', e => {
     const props = e.features[0].properties;
     const name = [props.N03_001, props.N03_003, props.N03_004].filter(Boolean).join(' ');
-    const code = props.N03_007;
-    const stats = muniStats[code];
-    showInfo(name, stats);
+    showInfo(name, muniStats[props.N03_007]);
   });
 
   map.on('mouseenter', 'prefecture-fill', () => { map.getCanvas().style.cursor = 'pointer'; });
@@ -198,62 +260,51 @@ function showInfo(name, stats) {
   }
   document.getElementById('info-stats').innerHTML = `
     <div class="stat-row"><span>人口</span><span class="stat-value">${stats.population ? stats.population.toLocaleString() + ' 人' : 'N/A'}</span></div>
-    <div class="stat-row"><span>平均年齢</span><span class="stat-value">${stats.avg_age ? stats.avg_age.toFixed(1) + ' 歳' : 'N/A'}</span></div>
-    <div class="stat-row"><span>高齢化率</span><span class="stat-value">${stats.elderly_pct ? stats.elderly_pct.toFixed(1) + ' %' : 'N/A'}</span></div>
+    <div class="stat-row"><span>平均年齢</span><span class="stat-value">${stats.avg_age != null ? stats.avg_age.toFixed(1) + ' 歳' : 'N/A'}</span></div>
+    <div class="stat-row"><span>高齢化率</span><span class="stat-value">${stats.elderly_pct != null ? stats.elderly_pct.toFixed(1) + ' %' : 'N/A'}</span></div>
   `;
 }
 
-// ---- ヒートマップ更新 ----
+// ---- ヒートマップ ----
 
 function buildColorExpression(mode, statsMap, codeKey) {
   const scale = COLOR_SCALES[mode];
-  const stops = [];
+  const expr = ['match', ['get', codeKey]];
+  let hasEntries = false;
 
   for (const [code, stats] of Object.entries(statsMap)) {
     const val = stats[mode];
     if (val == null) continue;
     const t = Math.max(0, Math.min(1, (val - scale.min) / (scale.max - scale.min)));
-    const color = interpolateColors(scale.colors, t);
-    stops.push([code, color]);
+    expr.push(code, interpolateColors(scale.colors, t));
+    hasEntries = true;
   }
 
-  if (stops.length === 0) return '#e8e8e8';
-
-  const expr = ['match', ['get', codeKey]];
-  stops.forEach(([code, color]) => { expr.push(code, color); });
+  if (!hasEntries) return '#e8e8e8';
   expr.push('#e8e8e8');
   return expr;
 }
 
 function updateColoring() {
-  const prefExpr = buildColorExpression(currentMode, prefStats, 'N03_007');
-  map.setPaintProperty('prefecture-fill', 'fill-color', prefExpr);
+  map.setPaintProperty('prefecture-fill', 'fill-color',
+    buildColorExpression(currentMode, prefStats, 'N03_007'));
 
   if (Object.keys(muniStats).length > 0) {
-    const muniExpr = buildColorExpression(currentMode, muniStats, 'N03_007');
-    map.setPaintProperty('municipality-fill', 'fill-color', muniExpr);
+    map.setPaintProperty('municipality-fill', 'fill-color',
+      buildColorExpression(currentMode, muniStats, 'N03_007'));
   }
 }
 
 function interpolateColors(colors, t) {
   const n = colors.length - 1;
   const idx = Math.min(Math.floor(t * n), n - 1);
-  const frac = t * n - idx;
-  return lerpColor(colors[idx], colors[idx + 1], frac);
+  return lerpColor(colors[idx], colors[idx + 1], t * n - idx);
 }
 
 function lerpColor(a, b, t) {
-  const parse = hex => [
-    parseInt(hex.slice(1,3),16),
-    parseInt(hex.slice(3,5),16),
-    parseInt(hex.slice(5,7),16)
-  ];
-  const [ar,ag,ab] = parse(a);
-  const [br,bg,bb] = parse(b);
-  const r = Math.round(ar + (br-ar)*t);
-  const g = Math.round(ag + (bg-ag)*t);
-  const bl = Math.round(ab + (bb-ab)*t);
-  return `rgb(${r},${g},${bl})`;
+  const p = hex => [parseInt(hex.slice(1,3),16), parseInt(hex.slice(3,5),16), parseInt(hex.slice(5,7),16)];
+  const [ar,ag,ab] = p(a), [br,bg,bb] = p(b);
+  return `rgb(${Math.round(ar+(br-ar)*t)},${Math.round(ag+(bg-ag)*t)},${Math.round(ab+(bb-ab)*t)})`;
 }
 
 // ---- 凡例 ----
@@ -270,77 +321,63 @@ function updateLegend() {
 // ---- 市区町村データ遅延読み込み ----
 
 async function loadVisibleMunicipalities() {
-  const bounds = map.getBounds();
-  const prefecturesToLoad = getVisiblePrefectureCodes(bounds);
-
-  const toLoad = prefecturesToLoad.filter(code => !loadedMuniPrefectures.has(code));
+  const codes = getVisiblePrefectureCodes();
+  const toLoad = codes.filter(c => !loadedMuniPrefectures.has(c));
   if (toLoad.length === 0) return;
 
-  const indicator = document.getElementById('loading-indicator');
-  indicator.style.display = 'block';
+  document.getElementById('loading-indicator').style.display = 'block';
+  await Promise.all(toLoad.map(loadMunicipalityData));
 
-  const promises = toLoad.map(code => loadMunicipalityData(code));
-  await Promise.all(promises);
-
-  const src = map.getSource('municipalities');
-  src.setData({ type: 'FeatureCollection', features: Object.values(muniFeatureMap) });
-
+  map.getSource('municipalities')
+    .setData({ type: 'FeatureCollection', features: Object.values(muniFeatureMap) });
   updateColoring();
-  indicator.style.display = 'none';
+  document.getElementById('loading-indicator').style.display = 'none';
 }
 
-function getVisiblePrefectureCodes(bounds) {
+function getVisiblePrefectureCodes() {
+  // queryRenderedFeatures はopacity:0でも機能する
   const features = map.queryRenderedFeatures({ layers: ['prefecture-fill'] });
-  const codes = new Set();
-  features.forEach(f => {
-    const code = f.properties.N03_007;
-    if (code) codes.add(code.substring(0, 2));
-  });
+  const codes = new Set(features.map(f => f.properties.N03_007?.substring(0, 2)).filter(Boolean));
+  // フォールバック: sourceから取得
+  if (codes.size === 0) {
+    map.querySourceFeatures('prefectures').forEach(f => {
+      const c = f.properties.N03_007?.substring(0, 2);
+      if (c) codes.add(c);
+    });
+  }
   return Array.from(codes);
 }
-
-const muniFeatureMap = {};
 
 async function loadMunicipalityData(prefCode) {
   if (loadedMuniPrefectures.has(prefCode)) return;
   loadedMuniPrefectures.add(prefCode);
-
   try {
     const resp = await fetch(`data/municipalities/${prefCode}.json`);
     if (!resp.ok) return;
     const geojson = await resp.json();
-
     geojson.features.forEach(f => {
       const code = f.properties.N03_007;
-      if (code) {
-        muniFeatureMap[code] = f;
-        // プレースホルダー統計（実データがあれば上書き）
-        if (!muniStats[code]) {
-          muniStats[code] = generatePlaceholderStats(code);
-          Object.assign(f.properties, muniStats[code]);
-        }
+      if (!code) return;
+      muniFeatureMap[code] = f;
+      if (!muniStats[code]) {
+        muniStats[code] = generatePlaceholderStats(code);
+        Object.assign(f.properties, muniStats[code]);
       }
     });
   } catch (e) {
-    console.warn(`Failed to load municipalities for ${prefCode}:`, e);
+    console.warn(`Failed to load municipalities/${prefCode}:`, e);
   }
 }
 
-
 function generatePlaceholderStats(muniCode) {
-  // 都道府県コードから親の統計を参照してランダムに分散させる
   const prefCode = muniCode.substring(0, 2) + '000';
-  const prefStat = prefStats[prefCode] || {};
-  const baseAge = prefStat.avg_age || 48;
-  const basePop = (prefStat.population || 1000000) / 30;
-
-  const seed = muniCode.split('').reduce((a, c) => a + c.charCodeAt(0), 0);
-  const rng = (min, max) => min + ((seed * 1234567 % 1000) / 1000) * (max - min);
-
+  const pref = prefStats[prefCode] || {};
+  const seed = muniCode.split('').reduce((a, c, i) => a + c.charCodeAt(0) * (i + 1), 0);
+  const rand = (min, max, offset = 0) => min + ((seed * 7919 + offset) % 1000) / 1000 * (max - min);
   return {
-    population: Math.round(basePop * (0.1 + rng(0, 2))),
-    avg_age: Math.round((baseAge + rng(-4, 4)) * 10) / 10,
-    elderly_pct: Math.round((prefStat.elderly_pct || 28) + rng(-5, 5)) * 10 / 10
+    population: Math.round((pref.population || 1000000) / 30 * (0.05 + rand(0, 2.5, 0))),
+    avg_age: Math.round(((pref.avg_age || 48) + rand(-5, 5, 1)) * 10) / 10,
+    elderly_pct: Math.round(((pref.elderly_pct || 28) + rand(-6, 6, 2)) * 10) / 10
   };
 }
 
