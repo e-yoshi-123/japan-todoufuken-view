@@ -32,6 +32,8 @@ let currentMode = 'population';
 let loadedMuniPrefectures = new Set();
 let isShowingMunicipalities = false;
 const muniFeatureMap = {};
+let centerPrefCode = null;
+let highlightRafId = null;
 
 async function init() {
   const statsResp = await fetch('data/prefecture_stats.json');
@@ -240,6 +242,46 @@ function setupMunicipalityLayer(beforeId) {
 
 // ---- ズームイベント ----
 
+function getCenterPrefCode() {
+  const point = map.project(map.getCenter());
+  const features = map.queryRenderedFeatures(point, { layers: ['prefecture-fill'] });
+  if (features.length > 0) {
+    const code = features[0].properties.N03_007;
+    return code ? code.substring(0, 2) : null;
+  }
+  return null;
+}
+
+function applyMuniOpacity() {
+  if (centerPrefCode) {
+    map.setPaintProperty('municipality-fill', 'fill-opacity', [
+      'interpolate', ['linear'], ['zoom'],
+      FADE_START, 0,
+      MUNI_ZOOM, ['case', ['==', ['get', 'pref_code'], centerPrefCode], 0.85, 0.18]
+    ]);
+  } else {
+    map.setPaintProperty('municipality-fill', 'fill-opacity',
+      ['interpolate', ['linear'], ['zoom'], FADE_START, 0, MUNI_ZOOM, 0.8]);
+  }
+}
+
+function updateCenterHighlight() {
+  const z = map.getZoom();
+  if (z < MUNI_ZOOM) {
+    if (centerPrefCode !== null) { centerPrefCode = null; applyMuniOpacity(); }
+    return;
+  }
+  const newCode = getCenterPrefCode();
+  if (newCode === centerPrefCode) return;
+  centerPrefCode = newCode;
+  applyMuniOpacity();
+}
+
+function scheduleHighlightUpdate() {
+  if (highlightRafId) return;
+  highlightRafId = requestAnimationFrame(() => { highlightRafId = null; updateCenterHighlight(); });
+}
+
 function bindZoomEvents() {
   map.on('zoom', () => {
     const z = map.getZoom();
@@ -253,6 +295,8 @@ function bindZoomEvents() {
       isShowingMunicipalities = false;
     }
   });
+
+  map.on('move', scheduleHighlightUpdate);
 
   map.on('moveend', () => {
     if (map.getZoom() >= MUNI_ZOOM) loadVisibleMunicipalities();
@@ -410,6 +454,7 @@ async function loadVisibleMunicipalities() {
   map.getSource('municipalities')
     .setData({ type: 'FeatureCollection', features: Object.values(muniFeatureMap) });
   updateColoring();
+  updateCenterHighlight();
   document.getElementById('loading-indicator').style.display = 'none';
 }
 
@@ -437,6 +482,7 @@ async function loadMunicipalityData(prefCode) {
     geojson.features.forEach(f => {
       const code = f.properties.N03_007;
       if (!code) return;
+      f.properties.pref_code = code.substring(0, 2);
       muniFeatureMap[code] = f;
       if (!muniStats[code]) {
         muniStats[code] = generatePlaceholderStats(code);
