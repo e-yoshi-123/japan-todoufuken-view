@@ -60,12 +60,17 @@ async function init() {
 
   map.on('load', () => {
     const style = map.getStyle();
-    // 最初のsymbolレイヤーの前にfill/lineを挿入 → OFMラベルが上に来る
     const firstSymbolId = style.layers.find(l => l.type === 'symbol')?.id;
 
     addWorldMask(firstSymbolId);
-    setupPrefectureLayer(prefGeoJSON, firstSymbolId);
+    setupPrefectureFill(prefGeoJSON, firstSymbolId);
     setupMunicipalityLayer(firstSymbolId);
+    // 都道府県境界線は市区町村fillより後に追加 → 常に最前面
+    addPrefectureBorder(firstSymbolId);
+    // 都道府県・市区町村のラベルは symbol層として最上位に追加
+    addPrefectureLabel();
+    addMunicipalityLabel();
+    configureOFMLabels();
     updateLegend();
     updateColoring();
     bindZoomEvents();
@@ -105,38 +110,36 @@ function addWorldMask(beforeId) {
 
 // ---- 都道府県レイヤー ----
 
-function setupPrefectureLayer(geojson, beforeId) {
+function setupPrefectureFill(geojson, beforeId) {
   map.addSource('prefectures', { type: 'geojson', data: geojson });
 
-  // zoom 7.5〜8 の間でフェードアウト
-  const prefOpacity = ['interpolate', ['linear'], ['zoom'],
-    FADE_START, 0.8,
-    MUNI_ZOOM, 0
-  ];
-  const prefLineOpacity = ['interpolate', ['linear'], ['zoom'],
-    FADE_START, 1.0,
-    MUNI_ZOOM, 0
-  ];
-
+  // zoom 7.5〜8 の間でフェードアウト（fillのみ）
   map.addLayer({
     id: 'prefecture-fill',
     type: 'fill',
     source: 'prefectures',
-    paint: { 'fill-color': '#e8e8e8', 'fill-opacity': prefOpacity }
+    paint: {
+      'fill-color': '#e8e8e8',
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], FADE_START, 0.8, MUNI_ZOOM, 0]
+    }
   }, beforeId);
+}
 
+function addPrefectureBorder(beforeId) {
+  // 市区町村fillより後に追加することで、市区町村ズームでも最前面に描画
   map.addLayer({
     id: 'prefecture-border',
     type: 'line',
     source: 'prefectures',
     paint: {
       'line-color': '#1d4ed8',
-      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.2, 8, 2.5],
-      'line-opacity': prefLineOpacity
+      'line-width': ['interpolate', ['linear'], ['zoom'], 4, 1.5, 8, 2.5, 12, 3.0],
+      'line-opacity': 1.0
     }
   }, beforeId);
+}
 
-  // 都道府県名ラベル（OFMのNoto Sansフォントを使用）
+function addPrefectureLabel() {
   map.addLayer({
     id: 'prefecture-label',
     type: 'symbol',
@@ -156,6 +159,46 @@ function setupPrefectureLayer(geojson, beforeId) {
       'text-halo-width': 2
     }
   });
+}
+
+function addMunicipalityLabel() {
+  // minzoom: MUNI_ZOOM+1 で全市区町村ラベルが一斉に出現
+  map.addLayer({
+    id: 'municipality-label',
+    type: 'symbol',
+    source: 'municipalities',
+    minzoom: MUNI_ZOOM + 1,
+    layout: {
+      'text-field': ['coalesce', ['get', 'N03_004'], ['get', 'N03_003'], ''],
+      'text-font': ['Noto Sans Regular', 'Noto Sans Bold'],
+      'text-size': ['interpolate', ['linear'], ['zoom'], 9, 11, 13, 13],
+      'text-allow-overlap': false,
+      'text-anchor': 'center',
+      'text-max-width': 4,
+      // 人口が多い市区町村を優先表示（プレースホルダーでも機能）
+      'symbol-sort-key': ['*', -1, ['coalesce', ['get', 'population'], 0]]
+    },
+    paint: {
+      'text-color': '#1e293b',
+      'text-halo-color': 'rgba(255,255,255,0.9)',
+      'text-halo-width': 1.5
+    }
+  });
+}
+
+function configureOFMLabels() {
+  const existing = new Set(map.getStyle().layers.map(l => l.id));
+  // OFMの都道府県名ラベルは非表示（自前で描画）
+  if (existing.has('label_state')) {
+    map.setLayoutProperty('label_state', 'visibility', 'none');
+  }
+  // OFMの都市・集落ラベルは zoom >= MUNI_ZOOM で非表示（自前ラベルに切り替え）
+  ['label_city', 'label_city_capital', 'label_town', 'label_village', 'label_other']
+    .filter(id => existing.has(id))
+    .forEach(id => {
+      map.setPaintProperty(id, 'text-opacity',
+        ['step', ['zoom'], 1, MUNI_ZOOM, 0]);
+    });
 }
 
 // ---- 市区町村レイヤー ----
