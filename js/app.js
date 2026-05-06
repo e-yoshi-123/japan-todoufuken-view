@@ -67,6 +67,7 @@ async function init() {
     addWorldMask(firstSymbolId);
     setupPrefectureFill(prefGeoJSON, firstSymbolId);
     setupMunicipalityLayer(firstSymbolId);
+    addPrefectureOverlay(); // municipality-border の直前に挿入
     // 都道府県境界線は市区町村fillより後に追加 → 常に最前面
     addPrefectureBorder(firstSymbolId);
     // 都道府県・市区町村のラベルは symbol層として最上位に追加
@@ -189,7 +190,14 @@ function addMunicipalityLabel() {
 }
 
 function configureOFMLabels() {
-  const existing = new Set(map.getStyle().layers.map(l => l.id));
+  const layers = map.getStyle().layers;
+  const existing = new Set(layers.map(l => l.id));
+
+  // OFMのboundary系レイヤーを非表示（自前の都道府県境界線と重なるため）
+  layers
+    .filter(l => l.id.includes('boundary') || l.id.includes('admin'))
+    .forEach(l => map.setLayoutProperty(l.id, 'visibility', 'none'));
+
   // OFMの都道府県名ラベルは非表示（自前で描画）
   if (existing.has('label_state')) {
     map.setLayoutProperty('label_state', 'visibility', 'none');
@@ -252,29 +260,36 @@ function getCenterPrefCode() {
   return null;
 }
 
-function applyMuniOpacity() {
-  if (centerPrefCode) {
-    map.setPaintProperty('municipality-fill', 'fill-opacity', [
-      'interpolate', ['linear'], ['zoom'],
-      FADE_START, 0,
-      MUNI_ZOOM, ['case', ['==', ['get', 'pref_code'], centerPrefCode], 0.85, 0.05]
-    ]);
-  } else {
-    map.setPaintProperty('municipality-fill', 'fill-opacity',
-      ['interpolate', ['linear'], ['zoom'], FADE_START, 0, MUNI_ZOOM, 0.8]);
-  }
+function addPrefectureOverlay() {
+  map.addLayer({
+    id: 'prefecture-overlay',
+    type: 'fill',
+    source: 'prefectures',
+    filter: ['==', ['get', 'N03_007'], '__none__'], // 初期は非表示
+    paint: {
+      'fill-color': 'white',
+      'fill-opacity': ['interpolate', ['linear'], ['zoom'], FADE_START, 0, MUNI_ZOOM, 0.82]
+    }
+  }, 'municipality-border');
+}
+
+function applyOverlay() {
+  map.setFilter('prefecture-overlay', centerPrefCode
+    ? ['!=', ['get', 'N03_007'], centerPrefCode + '000']
+    : ['==', ['get', 'N03_007'], '__none__']
+  );
 }
 
 function updateCenterHighlight() {
   const z = map.getZoom();
   if (z < MUNI_ZOOM) {
-    if (centerPrefCode !== null) { centerPrefCode = null; applyMuniOpacity(); }
+    if (centerPrefCode !== null) { centerPrefCode = null; applyOverlay(); }
     return;
   }
   const newCode = getCenterPrefCode();
   if (newCode === centerPrefCode) return;
   centerPrefCode = newCode;
-  applyMuniOpacity();
+  applyOverlay();
 }
 
 function scheduleHighlightUpdate() {
