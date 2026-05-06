@@ -257,7 +257,7 @@ function applyMuniOpacity() {
     map.setPaintProperty('municipality-fill', 'fill-opacity', [
       'interpolate', ['linear'], ['zoom'],
       FADE_START, 0,
-      MUNI_ZOOM, ['case', ['==', ['get', 'pref_code'], centerPrefCode], 0.85, 0.18]
+      MUNI_ZOOM, ['case', ['==', ['get', 'pref_code'], centerPrefCode], 0.85, 0.05]
     ]);
   } else {
     map.setPaintProperty('municipality-fill', 'fill-opacity',
