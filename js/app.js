@@ -36,55 +36,55 @@ let centerPrefCode = null;
 let highlightRafId = null;
 
 async function init() {
-  const statsResp = await fetch('data/prefecture_stats.json');
-  const statsData = await statsResp.json();
-  statsData.prefectures.forEach(p => { prefStats[p.code] = p; });
+  // マップ初期化とデータ取得を並列実行
+  const [mapReady, prefGeoJSON] = await Promise.all([
+    new Promise(resolve => {
+      map = new maplibregl.Map({
+        container: 'map',
+        style: 'https://tiles.openfreemap.org/styles/liberty',
+        center: [139.7, 35.69],
+        zoom: 9.0,
+        minZoom: 4,
+        maxZoom: 14,
+        maxBounds: [[119, 22], [156, 47]]
+      });
+      map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
+      map.on('load', resolve);
+    }),
+    (async () => {
+      const [statsData, geojson] = await Promise.all([
+        fetch('data/prefecture_stats.json').then(r => r.json()),
+        fetch('data/prefectures.geojson').then(r => r.json())
+      ]);
+      statsData.prefectures.forEach(p => { prefStats[p.code] = p; });
+      geojson.features.forEach(f => {
+        const code = f.properties.N03_007;
+        if (prefStats[code]) Object.assign(f.properties, prefStats[code]);
+      });
+      return geojson;
+    })()
+  ]);
 
-  const prefResp = await fetch('data/prefectures.geojson');
-  const prefGeoJSON = await prefResp.json();
-  prefGeoJSON.features.forEach(f => {
-    const code = f.properties.N03_007;
-    if (prefStats[code]) Object.assign(f.properties, prefStats[code]);
-  });
+  const style = map.getStyle();
+  const firstSymbolId = style.layers.find(l => l.type === 'symbol')?.id;
 
-  map = new maplibregl.Map({
-    container: 'map',
-    style: 'https://tiles.openfreemap.org/styles/liberty',
-    center: [139.7, 35.69],
-    zoom: 9.0,
-    minZoom: 4,
-    maxZoom: 14,
-    // 日本の範囲外にパンできないように制限
-    maxBounds: [[119, 22], [156, 47]]
-  });
-
-  map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
-
-  map.on('load', () => {
-    const style = map.getStyle();
-    const firstSymbolId = style.layers.find(l => l.type === 'symbol')?.id;
-
-    addWorldMask(firstSymbolId);
-    setupPrefectureFill(prefGeoJSON, firstSymbolId);
-    setupMunicipalityLayer(firstSymbolId);
-    addPrefectureOverlay(); // municipality-border の直前に挿入
-    // 都道府県境界線は市区町村fillより後に追加 → 常に最前面
-    addPrefectureBorder(firstSymbolId);
-    // 都道府県・市区町村のラベルは symbol層として最上位に追加
-    addPrefectureLabel();
-    addMunicipalityLabel();
-    configureOFMLabels();
-    updateLegend();
-    updateColoring();
-    bindZoomEvents();
-    bindControls();
-    bindMapEvents();
-    // 初期ズームがMUNI_ZOOM以上の場合、タイル描画完了後に市区町村データをロード
-    if (map.getZoom() >= MUNI_ZOOM) {
-      isShowingMunicipalities = true;
-      map.once('idle', () => loadVisibleMunicipalities());
-    }
-  });
+  addWorldMask(firstSymbolId);
+  setupPrefectureFill(prefGeoJSON, firstSymbolId);
+  setupMunicipalityLayer(firstSymbolId);
+  addPrefectureOverlay();
+  addPrefectureBorder(firstSymbolId);
+  addPrefectureLabel();
+  addMunicipalityLabel();
+  configureOFMLabels();
+  updateLegend();
+  updateColoring();
+  bindZoomEvents();
+  bindControls();
+  bindMapEvents();
+  if (map.getZoom() >= MUNI_ZOOM) {
+    isShowingMunicipalities = true;
+    map.once('idle', () => loadVisibleMunicipalities());
+  }
 }
 
 // ---- 日本外マスク ----
