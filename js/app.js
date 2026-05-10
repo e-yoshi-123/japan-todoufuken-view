@@ -51,7 +51,7 @@ async function init() {
     container: 'map',
     style: 'https://tiles.openfreemap.org/styles/liberty',
     center: [136.5, 36.5],
-    zoom: 5,
+    zoom: 8.0,
     minZoom: 4,
     maxZoom: 14,
     // 日本の範囲外にパンできないように制限
@@ -191,9 +191,9 @@ function configureOFMLabels() {
   const layers = map.getStyle().layers;
   const existing = new Set(layers.map(l => l.id));
 
-  // OFMのboundary系レイヤーを非表示（自前の都道府県境界線と重なるため）
+  // OFMのboundary系・道路番号シールド系レイヤーを非表示
   layers
-    .filter(l => l.id.includes('boundary') || l.id.includes('admin'))
+    .filter(l => l.id.includes('boundary') || l.id.includes('admin') || l.id.includes('shield') || l.id.includes('road_label') || l.id.includes('route'))
     .forEach(l => map.setLayoutProperty(l.id, 'visibility', 'none'));
 
   // OFMの都道府県名ラベルは非表示（自前で描画）
