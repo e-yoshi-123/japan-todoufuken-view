@@ -79,10 +79,10 @@ async function init() {
     bindZoomEvents();
     bindControls();
     bindMapEvents();
-    // 初期ズームがMUNI_ZOOM以上の場合、起動時に市区町村データをロード
+    // 初期ズームがMUNI_ZOOM以上の場合、タイル描画完了後に市区町村データをロード
     if (map.getZoom() >= MUNI_ZOOM) {
       isShowingMunicipalities = true;
-      loadVisibleMunicipalities();
+      map.once('idle', () => loadVisibleMunicipalities());
     }
   });
 }
@@ -179,8 +179,7 @@ function addMunicipalityLabel() {
       'text-field': ['coalesce', ['get', 'N03_004'], ['get', 'N03_003'], ''],
       'text-font': ['Noto Sans Regular', 'Noto Sans Bold'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 9, 11, 13, 13],
-      'text-allow-overlap': true,
-      'text-ignore-placement': true,
+      'text-overlap': 'always',
       'text-anchor': 'center',
       'text-max-width': 4
     },
