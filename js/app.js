@@ -165,21 +165,19 @@ function addPrefectureLabel() {
 }
 
 function addMunicipalityLabel() {
-  // minzoom: MUNI_ZOOM+1 で全市区町村ラベルが一斉に出現
   map.addLayer({
     id: 'municipality-label',
     type: 'symbol',
     source: 'municipalities',
-    minzoom: MUNI_ZOOM + 1,
+    minzoom: MUNI_ZOOM,
     layout: {
       'text-field': ['coalesce', ['get', 'N03_004'], ['get', 'N03_003'], ''],
       'text-font': ['Noto Sans Regular', 'Noto Sans Bold'],
       'text-size': ['interpolate', ['linear'], ['zoom'], 9, 11, 13, 13],
-      'text-allow-overlap': false,
+      'text-allow-overlap': true,
+      'text-ignore-placement': true,
       'text-anchor': 'center',
-      'text-max-width': 4,
-      // 人口が多い市区町村を優先表示（プレースホルダーでも機能）
-      'symbol-sort-key': ['*', -1, ['coalesce', ['get', 'population'], 0]]
+      'text-max-width': 4
     },
     paint: {
       'text-color': '#1e293b',
