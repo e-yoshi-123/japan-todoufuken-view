@@ -50,8 +50,8 @@ async function init() {
   map = new maplibregl.Map({
     container: 'map',
     style: 'https://tiles.openfreemap.org/styles/liberty',
-    center: [136.5, 36.5],
-    zoom: 8.0,
+    center: [139.7, 35.69],
+    zoom: 9.0,
     minZoom: 4,
     maxZoom: 14,
     // 日本の範囲外にパンできないように制限
@@ -79,6 +79,11 @@ async function init() {
     bindZoomEvents();
     bindControls();
     bindMapEvents();
+    // 初期ズームがMUNI_ZOOM以上の場合、起動時に市区町村データをロード
+    if (map.getZoom() >= MUNI_ZOOM) {
+      isShowingMunicipalities = true;
+      loadVisibleMunicipalities();
+    }
   });
 }
 
@@ -472,16 +477,17 @@ async function loadVisibleMunicipalities() {
 }
 
 function getVisiblePrefectureCodes() {
-  // queryRenderedFeatures はopacity:0でも機能する
-  const features = map.queryRenderedFeatures({ layers: ['prefecture-fill'] });
-  const codes = new Set(features.map(f => f.properties.N03_007?.substring(0, 2)).filter(Boolean));
-  // フォールバック: sourceから取得
-  if (codes.size === 0) {
-    map.querySourceFeatures('prefectures').forEach(f => {
-      const c = f.properties.N03_007?.substring(0, 2);
-      if (c) codes.add(c);
-    });
-  }
+  const codes = new Set();
+  // queryRenderedFeatures: viewport内の描画済みフィーチャーを取得
+  map.queryRenderedFeatures({ layers: ['prefecture-fill'] }).forEach(f => {
+    const c = f.properties.N03_007?.substring(0, 2);
+    if (c) codes.add(c);
+  });
+  // querySourceFeatures: ロード済みタイル全体から補完（viewport端の都道府県を確実に拾うため）
+  map.querySourceFeatures('prefectures').forEach(f => {
+    const c = f.properties.N03_007?.substring(0, 2);
+    if (c) codes.add(c);
+  });
   return Array.from(codes);
 }
 
